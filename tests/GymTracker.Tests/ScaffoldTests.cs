@@ -48,4 +48,21 @@ public class ScaffoldTests
         Assert.Equal(1120m, session.TotalVolume);
         Assert.Equal("Upper Body", session.Name);
     }
+
+    [Fact]
+    public void FeaturePageStatesProvideSharedLoadingEmptyAndErrorContracts()
+    {
+        Assert.Equal(FeaturePageStateKind.Loading, FeaturePageStates.Loading.Kind);
+        Assert.Equal("Loading", FeaturePageStates.Loading.Title);
+
+        var empty = FeaturePageStates.Empty("No workouts yet", "Start a workout to see it here.");
+        Assert.Equal(FeaturePageStateKind.Empty, empty.Kind);
+        Assert.Equal("No workouts yet", empty.Title);
+        Assert.Equal("Start a workout to see it here.", empty.Message);
+
+        var error = FeaturePageStates.Error("Unable to load workouts", "Try again in a moment.");
+        Assert.Equal(FeaturePageStateKind.Error, error.Kind);
+        Assert.Equal("Unable to load workouts", error.Title);
+        Assert.Equal("Try again in a moment.", error.Message);
+    }
 }
