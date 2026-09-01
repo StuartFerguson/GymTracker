@@ -1,6 +1,7 @@
 using System.Globalization;
 using GymTracker.Application;
 using GymTracker.Core.Domain;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace GymTracker.Pages;
@@ -12,6 +13,10 @@ internal static class WorkoutNavigationState
     public static ExerciseTemplate? CurrentTemplate { get; set; }
 
     public static int EditingSetIndex { get; set; } = -1;
+
+    public static ActiveWorkoutRecovery Recovery =>
+        Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<ActiveWorkoutRecovery>()
+        ?? throw new InvalidOperationException("The MAUI service provider is not available.");
 }
 
 public abstract class FeaturePage : ContentPage
@@ -154,8 +159,13 @@ public sealed class WeeklyPlanPage : FeaturePage
 
 public sealed class StartWorkoutPage : FeaturePage
 {
+    private readonly VerticalStackLayout recoveryLayout;
+
     public StartWorkoutPage() : base("Start workout", "Choose a session and get straight to your first set")
     {
+        recoveryLayout = new VerticalStackLayout { Spacing = 8 };
+        Body.Children.Add(recoveryLayout);
+
         var catalog = new BuiltInWorkoutCatalog();
         foreach (var template in catalog.Templates)
         {
@@ -167,6 +177,53 @@ public sealed class StartWorkoutPage : FeaturePage
 
         AddSection("Quick start", "Begin with an empty session and add exercises as you go");
         AddAction("Start quick workout", () => StartQuickSession());
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        recoveryLayout.Children.Clear();
+
+        try
+        {
+            var recovery = await WorkoutNavigationState.Recovery.LoadAsync();
+            if (recovery is null)
+            {
+                return;
+            }
+
+            recoveryLayout.Children.Add(new Label
+            {
+                Text = $"In-progress workout: {recovery.Session.Name} ({recovery.Session.TotalSets} sets)",
+                FontFamily = "OpenSansSemibold",
+                FontSize = 17
+            });
+            var resume = new Button { Text = "Resume workout" };
+            resume.Clicked += async (_, _) =>
+            {
+                WorkoutNavigationState.CurrentSession = recovery.Session;
+                WorkoutNavigationState.CurrentTemplate = recovery.TemplateName is null
+                    ? null
+                    : new BuiltInWorkoutCatalog().GetTemplate(recovery.TemplateName);
+                await Shell.Current.GoToAsync(AppRoutes.ActiveWorkout);
+            };
+            recoveryLayout.Children.Add(resume);
+            var discard = new Button { Text = "Discard saved workout" };
+            discard.Clicked += async (_, _) =>
+            {
+                await WorkoutNavigationState.Recovery.ClearAsync();
+                recoveryLayout.Children.Clear();
+            };
+            recoveryLayout.Children.Add(discard);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            recoveryLayout.Children.Add(new Label
+            {
+                Text = "Unable to check for a saved workout.",
+                TextColor = Color.FromArgb("#B42318")
+            });
+        }
     }
 
     private static Task StartSession(BuiltInWorkoutCatalog catalog, string templateName)
@@ -239,6 +296,7 @@ public sealed class ActiveWorkoutPage : FeaturePage
         AddAction("Use last session", UseLastSession);
         AddAction("Add set", () => AddSet(exercisePicker.SelectedItem?.ToString() ?? exercises[0]), primary: true);
         AddAction("Finish workout", FinishWorkout);
+        AddAction("Cancel workout", CancelWorkout);
     }
 
     private static ColumnDefinitionCollection Columns(double first, double second) =>
@@ -270,12 +328,12 @@ public sealed class ActiveWorkoutPage : FeaturePage
         return Task.CompletedTask;
     }
 
-    private Task AddSet(string exercise)
+    private async Task AddSet(string exercise)
     {
         if (!TryParseWeight(weightEntry.Text, out var weight))
         {
             feedback.Text = "Enter a valid weight or leave it blank for bodyweight.";
-            return Task.CompletedTask;
+            return;
         }
 
         var reps = ParseReps(repsEntry.Text);
@@ -283,12 +341,13 @@ public sealed class ActiveWorkoutPage : FeaturePage
         if (reps is null)
         {
             feedback.Text = "Enter a valid rep count.";
-            return Task.CompletedTask;
+            return;
         }
 
         try
         {
             session.AddSet(exercise, weight, reps.Value, notesEntry.Text, status, IsDumbbellExercise(exercise));
+            await WorkoutNavigationState.Recovery.SaveAsync(session, WorkoutNavigationState.CurrentTemplate?.Name);
             feedback.Text = string.Empty;
             weightEntry.Text = string.Empty;
             repsEntry.Text = string.Empty;
@@ -300,8 +359,13 @@ public sealed class ActiveWorkoutPage : FeaturePage
         {
             feedback.Text = "Completed sets need reps, and weight must be greater than zero when supplied.";
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "Set logged, but it could not be saved for recovery.";
+            RefreshSets();
+        }
 
-        return Task.CompletedTask;
+        return;
     }
 
     private void RefreshSets()
@@ -374,7 +438,31 @@ public sealed class ActiveWorkoutPage : FeaturePage
 
     private static bool IsDumbbellExercise(string exercise) => exercise.Contains("Dumbbell", StringComparison.OrdinalIgnoreCase);
 
-    private Task FinishWorkout() => Shell.Current.GoToAsync(AppRoutes.WorkoutSummary);
+    private async Task FinishWorkout()
+    {
+        try
+        {
+            await Shell.Current.GoToAsync(AppRoutes.WorkoutSummary);
+            await WorkoutNavigationState.Recovery.ClearAsync();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "Workout finished, but the saved recovery state could not be cleared.";
+        }
+    }
+
+    private async Task CancelWorkout()
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("..");
+            await WorkoutNavigationState.Recovery.ClearAsync();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "Workout cancelled, but the saved recovery state could not be cleared.";
+        }
+    }
 }
 
 public sealed class EditWorkoutSetPage : FeaturePage
@@ -388,7 +476,7 @@ public sealed class EditWorkoutSetPage : FeaturePage
 
     public EditWorkoutSetPage() : base("Edit set", "Update the recorded values, then save your changes")
     {
-        session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Upper Body");
+        session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Quick workout");
         weightEntry = new Entry { Placeholder = "Weight (optional)", Keyboard = Keyboard.Numeric };
         repsEntry = new Entry { Placeholder = "Reps", Keyboard = Keyboard.Numeric };
         notesEntry = new Entry { Placeholder = "Notes (optional)" };
@@ -423,13 +511,13 @@ public sealed class EditWorkoutSetPage : FeaturePage
         }
     }
 
-    private Task Save()
+    private async Task Save()
     {
         var index = WorkoutNavigationState.EditingSetIndex;
         if (index < 0 || index >= session.Sets.Count)
         {
             feedback.Text = "The selected set is no longer available.";
-            return Task.CompletedTask;
+            return;
         }
 
         var reps = int.TryParse(repsEntry.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedReps) ? parsedReps : -1;
@@ -443,12 +531,21 @@ public sealed class EditWorkoutSetPage : FeaturePage
         try
         {
             session.UpdateSet(index, weight, reps, notesEntry.Text, status, session.Sets[index].IsPerDumbbell);
-            return Shell.Current.GoToAsync("..");
+            try
+            {
+                await WorkoutNavigationState.Recovery.SaveAsync(session, WorkoutNavigationState.CurrentTemplate?.Name);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                feedback.Text = "Changes applied, but they could not be saved for recovery.";
+                return;
+            }
+
+            await Shell.Current.GoToAsync("..");
         }
         catch (ArgumentOutOfRangeException)
         {
             feedback.Text = "Completed sets need reps, and weight must be greater than zero when supplied.";
-            return Task.CompletedTask;
         }
     }
 
