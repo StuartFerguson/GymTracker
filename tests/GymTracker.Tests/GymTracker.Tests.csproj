@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GymTracker.Core\GymTracker.Core.csproj" />
+    <ProjectReference Include="..\..\src\GymTracker.Infrastructure\GymTracker.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

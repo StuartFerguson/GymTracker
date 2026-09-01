@@ -1,4 +1,5 @@
 using GymTracker.Application;
+using GymTracker.Infrastructure;
 using Microsoft.Extensions.Logging;
 
 namespace GymTracker;
@@ -17,6 +18,7 @@ public static class MauiProgram
             });
 
         builder.Services.AddGymTrackerApplication();
+        builder.Services.AddGymTrackerPersistence(Path.Combine(FileSystem.AppDataDirectory, "gymtracker.db"));
 
 #if DEBUG
         builder.Logging.AddDebug();
