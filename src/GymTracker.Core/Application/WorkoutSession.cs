@@ -40,6 +40,29 @@ public sealed class WorkoutSession
 
     public decimal TotalVolume => sets.Sum(set => set.Volume);
 
+    public ActiveWorkoutSnapshot ToSnapshot(string? templateName) =>
+        new(Name, templateName, sets.Select(set => new WorkoutSetSnapshot(
+            set.Exercise,
+            set.Weight,
+            set.Reps,
+            set.Notes,
+            set.Status,
+            set.IsPerDumbbell)).ToArray());
+
+    public static WorkoutSession FromSnapshot(ActiveWorkoutSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshot.SessionName);
+
+        var session = new WorkoutSession(snapshot.SessionName);
+        foreach (var set in snapshot.Sets)
+        {
+            session.AddSet(set.Exercise, set.Weight, set.Reps, set.Notes, set.Status, set.IsPerDumbbell);
+        }
+
+        return session;
+    }
+
     public void AddSet(
         string exercise,
         decimal? weight,

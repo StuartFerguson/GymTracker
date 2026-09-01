@@ -1,4 +1,5 @@
 using GymTracker.Application;
+using GymTracker.Core.Infrastructure;
 using Microsoft.Extensions.Logging;
 
 namespace GymTracker;
@@ -17,6 +18,9 @@ public static class MauiProgram
             });
 
         builder.Services.AddGymTrackerApplication();
+        builder.Services.AddSingleton<IActiveWorkoutStore>(_ =>
+            new JsonActiveWorkoutStore(Path.Combine(FileSystem.AppDataDirectory, "active-workout.json")));
+        builder.Services.AddSingleton<ActiveWorkoutRecovery>();
 
 #if DEBUG
         builder.Logging.AddDebug();
