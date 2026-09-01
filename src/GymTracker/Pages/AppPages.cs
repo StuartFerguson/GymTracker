@@ -76,6 +76,44 @@ public abstract class FeaturePage : ContentPage
         };
         Body.Children.Add(frame);
     }
+
+    protected void AddState(FeaturePageState state) => Body.Children.Add(new FeatureStateView(state));
+}
+
+public sealed class FeatureStateView : Border
+{
+    public FeatureStateView(FeaturePageState state)
+    {
+        Stroke = Color.FromArgb("#E5E5E5");
+        StrokeShape = new RoundRectangle { CornerRadius = 14 };
+        Padding = 16;
+        Content = new VerticalStackLayout
+        {
+            Spacing = 4,
+            Children =
+            {
+                new Label
+                {
+                    Text = state.Title,
+                    FontFamily = "OpenSansSemibold",
+                    FontSize = 17,
+                    TextColor = ColorFor(state.Kind)
+                },
+                new Label
+                {
+                    Text = state.Message,
+                    TextColor = Color.FromArgb("#5C677D")
+                }
+            }
+        };
+    }
+
+    private static Color ColorFor(FeaturePageStateKind kind) => kind switch
+    {
+        FeaturePageStateKind.Error => Color.FromArgb("#B42318"),
+        FeaturePageStateKind.Empty => Color.FromArgb("#14213D"),
+        _ => Color.FromArgb("#5C677D")
+    };
 }
 
 public sealed class DashboardPage : FeaturePage
