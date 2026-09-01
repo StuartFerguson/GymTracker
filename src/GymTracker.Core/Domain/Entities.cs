@@ -16,12 +16,28 @@ public enum MeasurementUnit
     Metres
 }
 
+public enum ExerciseCategory
+{
+    Chest,
+    Back,
+    Shoulders,
+    Arms,
+    Legs,
+    Core,
+    Cardio
+}
+
 public sealed record Exercise(
     Guid Id,
     string Name,
     ExerciseType Type,
     MeasurementUnit DefaultUnit,
-    bool IsActive);
+    bool IsActive)
+{
+    public ExerciseCategory Category { get; init; } = ExerciseCategory.Cardio;
+}
+
+public sealed record WeeklyPlanDay(DayOfWeek Day, string TemplateName);
 
 public sealed record ExerciseTemplateItem(
     Guid ExerciseId,
