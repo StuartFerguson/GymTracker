@@ -10,9 +10,9 @@ This design covers the solution and project scaffold, startup composition, initi
 
 ## Architecture
 
-The solution contains one MAUI app project under `src/GymTracker` and one test project under `tests/GymTracker.Tests`. The app project is organized into `Domain`, `Application`, `Infrastructure`, and `UI` areas so later issues can add behavior without coupling screens directly to storage.
+The solution contains a MAUI app project under `src/GymTracker`, a platform-neutral core library under `src/GymTracker.Core`, and one test project under `tests/GymTracker.Tests`. The core library owns application contracts and non-UI composition so unit tests do not execute MAUI resource processing. The app project retains `Domain`, `Application`, `Infrastructure`, and `UI` areas for platform-facing work.
 
-The initial composition root registers application services and platform-facing abstractions through MAUI dependency injection. Persistence is represented only by boundaries needed for the scaffold; SQLite implementation belongs to issue #2. The app remains fully local and has no backend or account flow.
+The initial composition root registers the core application services and platform-facing abstractions through MAUI dependency injection. Persistence is represented only by boundaries needed for the scaffold; SQLite implementation belongs to issue #2. The app remains fully local and has no backend or account flow.
 
 ## Platform Targets
 
@@ -34,4 +34,4 @@ The test project verifies the scaffold's non-visual composition contract: the ap
 - UI, application/domain logic, and infrastructure boundaries are represented by the project structure.
 - No backend or account flow is introduced.
 - The solution can be extended for iOS and future integrations without moving core logic into platform-specific code.
-- A test project is available for subsequent unit and integration coverage.
+- A platform-neutral core library and test project are available for subsequent unit and integration coverage.

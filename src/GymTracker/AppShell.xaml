@@ -7,8 +7,8 @@
     Title="GymTracker">
 
     <ShellContent
-        Title="Home"
+        Title="Dashboard"
         ContentTemplate="{DataTemplate local:MainPage}"
-        Route="MainPage" />
+        Route="Dashboard" />
 
 </Shell>
