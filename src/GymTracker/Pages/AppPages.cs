@@ -7,6 +7,8 @@ namespace GymTracker.Pages;
 internal static class WorkoutNavigationState
 {
     public static WorkoutSession? CurrentSession { get; set; }
+
+    public static int EditingSetIndex { get; set; } = -1;
 }
 
 public abstract class FeaturePage : ContentPage
@@ -153,7 +155,12 @@ public sealed class StartWorkoutPage : FeaturePage
 
     private static Task StartSession()
     {
-        WorkoutNavigationState.CurrentSession = new WorkoutSession("Upper Body");
+        WorkoutNavigationState.CurrentSession = new WorkoutSession("Upper Body",
+        [
+            new WorkoutSet("Bench Press", 60, 10),
+            new WorkoutSet("Dumbbell Bench Press", 22.5m, 10, IsPerDumbbell: true),
+            new WorkoutSet("Pull Up", null, 8)
+        ]);
         return Shell.Current.GoToAsync(AppRoutes.ActiveWorkout);
     }
 }
@@ -161,8 +168,11 @@ public sealed class StartWorkoutPage : FeaturePage
 public sealed class ActiveWorkoutPage : FeaturePage
 {
     private readonly WorkoutSession session;
+    private readonly Picker exercisePicker;
     private readonly Entry weightEntry;
     private readonly Entry repsEntry;
+    private readonly Entry notesEntry;
+    private readonly Picker statusPicker;
     private readonly Label feedback;
     private readonly VerticalStackLayout setsLayout;
 
@@ -171,14 +181,28 @@ public sealed class ActiveWorkoutPage : FeaturePage
         session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Upper Body");
 
         Body.Children.Add(new Label { Text = "Current exercise", FontFamily = "OpenSansSemibold", FontSize = 17 });
-        var exercise = new Picker { Title = "Select exercise", ItemsSource = new[] { "Bench Press", "Barbell Row", "Shoulder Press" }, SelectedIndex = 0 };
-        Body.Children.Add(exercise);
+        exercisePicker = new Picker
+        {
+            Title = "Select exercise",
+            ItemsSource = new[] { "Bench Press", "Barbell Row", "Shoulder Press", "Dumbbell Bench Press", "Pull Up" },
+            SelectedIndex = 0
+        };
+        Body.Children.Add(exercisePicker);
 
-        var inputs = new Grid { ColumnDefinitions = Columns(1, 1), ColumnSpacing = 12 };
-        weightEntry = new Entry { Placeholder = "Weight", Keyboard = Keyboard.Numeric };
+        var inputs = new Grid { ColumnDefinitions = Columns(1, 1), RowDefinitions = Rows(1, 1), ColumnSpacing = 12, RowSpacing = 8 };
+        weightEntry = new Entry { Placeholder = "Weight (optional)", Keyboard = Keyboard.Numeric };
         repsEntry = new Entry { Placeholder = "Reps", Keyboard = Keyboard.Numeric };
+        notesEntry = new Entry { Placeholder = "Notes (optional)" };
         inputs.Add(weightEntry);
         inputs.Add(repsEntry, 1);
+        inputs.Add(notesEntry, 0, 1);
+        statusPicker = new Picker
+        {
+            Title = "Set status",
+            ItemsSource = Enum.GetNames<WorkoutSetStatus>(),
+            SelectedItem = WorkoutSetStatus.Completed.ToString()
+        };
+        inputs.Add(statusPicker, 1, 1);
         Body.Children.Add(inputs);
 
         feedback = new Label { TextColor = Color.FromArgb("#B42318") };
@@ -187,39 +211,223 @@ public sealed class ActiveWorkoutPage : FeaturePage
         setsLayout = new VerticalStackLayout { Spacing = 8 };
         Body.Children.Add(new Label { Text = "Logged sets", FontFamily = "OpenSansSemibold", FontSize = 17 });
         Body.Children.Add(setsLayout);
-        AddAction("Add set", () => AddSet(exercise.SelectedItem?.ToString() ?? "Bench Press"), primary: true);
+        AddAction("Use last session", UseLastSession);
+        AddAction("Add set", () => AddSet(exercisePicker.SelectedItem?.ToString() ?? "Bench Press"), primary: true);
         AddAction("Finish workout", FinishWorkout);
     }
 
     private static ColumnDefinitionCollection Columns(double first, double second) =>
         new() { new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Star) };
 
+    private static RowDefinitionCollection Rows(double first, double second) =>
+        new() { new RowDefinition(GridLength.Star), new RowDefinition(GridLength.Star) };
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        RefreshSets();
+    }
+
+    private Task UseLastSession()
+    {
+        var previous = session.GetPreviousSet(exercisePicker.SelectedItem?.ToString() ?? string.Empty);
+        if (previous is null)
+        {
+            feedback.Text = "No previous value is available for this exercise.";
+            return Task.CompletedTask;
+        }
+
+        weightEntry.Text = previous.Weight?.ToString("g", CultureInfo.InvariantCulture) ?? string.Empty;
+        repsEntry.Text = previous.Reps.ToString(CultureInfo.InvariantCulture);
+        notesEntry.Text = previous.Notes;
+        statusPicker.SelectedItem = previous.Status.ToString();
+        feedback.Text = previous.IsPerDumbbell ? "Previous value loaded per dumbbell." : "Previous value loaded.";
+        return Task.CompletedTask;
+    }
+
     private Task AddSet(string exercise)
     {
-        if (!decimal.TryParse(weightEntry.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var weight) ||
-            !int.TryParse(repsEntry.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var reps))
+        if (!TryParseWeight(weightEntry.Text, out var weight))
         {
-            feedback.Text = "Enter a valid weight and rep count.";
+            feedback.Text = "Enter a valid weight or leave it blank for bodyweight.";
+            return Task.CompletedTask;
+        }
+
+        var reps = ParseReps(repsEntry.Text);
+        var status = ParseStatus(statusPicker.SelectedItem?.ToString());
+        if (reps is null)
+        {
+            feedback.Text = "Enter a valid rep count.";
             return Task.CompletedTask;
         }
 
         try
         {
-            session.AddSet(exercise, weight, reps);
+            session.AddSet(exercise, weight, reps.Value, notesEntry.Text, status, IsDumbbellExercise(exercise));
             feedback.Text = string.Empty;
-            setsLayout.Children.Add(new Label { Text = $"Set {session.TotalSets}: {weight:g} kg × {reps} reps", FontSize = 16 });
             weightEntry.Text = string.Empty;
             repsEntry.Text = string.Empty;
+            notesEntry.Text = string.Empty;
+            statusPicker.SelectedItem = WorkoutSetStatus.Completed.ToString();
+            RefreshSets();
         }
         catch (ArgumentOutOfRangeException)
         {
-            feedback.Text = "Weight and reps must be greater than zero.";
+            feedback.Text = "Completed sets need reps, and weight must be greater than zero when supplied.";
         }
 
         return Task.CompletedTask;
     }
 
+    private void RefreshSets()
+    {
+        setsLayout.Children.Clear();
+        for (var index = 0; index < session.Sets.Count; index++)
+        {
+            var setIndex = index;
+            var set = session.Sets[index];
+            var details = new VerticalStackLayout
+            {
+                Spacing = 2,
+                Children =
+                {
+                    new Label { Text = $"Set {index + 1}  •  {FormatSet(set)}", FontSize = 16, FontFamily = "OpenSansSemibold" },
+                    new Label { Text = FormatNotes(set), TextColor = Color.FromArgb("#5C677D"), IsVisible = !string.IsNullOrWhiteSpace(set.Notes) }
+                }
+            };
+            var edit = new Button { Text = "Edit", HeightRequest = 42, WidthRequest = 90, CornerRadius = 10 };
+            edit.Clicked += async (_, _) =>
+            {
+                WorkoutNavigationState.EditingSetIndex = setIndex;
+                await Shell.Current.GoToAsync(AppRoutes.EditWorkoutSet);
+            };
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitionCollection { new(GridLength.Star), new(GridLength.Auto) }, ColumnSpacing = 12 };
+            row.Add(details);
+            row.Add(edit, 1);
+            setsLayout.Children.Add(new Border
+            {
+                Stroke = Color.FromArgb("#E5E5E5"),
+                StrokeShape = new RoundRectangle { CornerRadius = 12 },
+                Padding = 12,
+                Content = row
+            });
+        }
+    }
+
+    private static string FormatSet(WorkoutSet set)
+    {
+        var weight = set.Weight is null ? "Bodyweight" : $"{set.Weight:g} kg{(set.IsPerDumbbell ? " each" : string.Empty)}";
+        var reps = set.Reps == 0 ? "no reps" : $"{set.Reps} reps";
+        return $"{weight} × {reps}  •  {set.Status}";
+    }
+
+    private static string FormatNotes(WorkoutSet set) => $"{set.Notes}";
+
+    private static bool TryParseWeight(string? text, out decimal? weight)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            weight = null;
+            return true;
+        }
+
+        if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+        {
+            weight = value;
+            return true;
+        }
+
+        weight = null;
+        return false;
+    }
+
+    private static int? ParseReps(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? 0 : int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : null;
+
+    private static WorkoutSetStatus ParseStatus(string? text) =>
+        Enum.TryParse<WorkoutSetStatus>(text, out var status) ? status : WorkoutSetStatus.Completed;
+
+    private static bool IsDumbbellExercise(string exercise) => exercise.Contains("Dumbbell", StringComparison.OrdinalIgnoreCase);
+
     private Task FinishWorkout() => Shell.Current.GoToAsync(AppRoutes.WorkoutSummary);
+}
+
+public sealed class EditWorkoutSetPage : FeaturePage
+{
+    private readonly WorkoutSession session;
+    private readonly Entry weightEntry;
+    private readonly Entry repsEntry;
+    private readonly Entry notesEntry;
+    private readonly Picker statusPicker;
+    private readonly Label feedback;
+
+    public EditWorkoutSetPage() : base("Edit set", "Update the recorded values, then save your changes")
+    {
+        session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Upper Body");
+        weightEntry = new Entry { Placeholder = "Weight (optional)", Keyboard = Keyboard.Numeric };
+        repsEntry = new Entry { Placeholder = "Reps", Keyboard = Keyboard.Numeric };
+        notesEntry = new Entry { Placeholder = "Notes (optional)" };
+        statusPicker = new Picker { Title = "Set status", ItemsSource = Enum.GetNames<WorkoutSetStatus>() };
+        feedback = new Label { TextColor = Color.FromArgb("#B42318") };
+
+        Body.Children.Add(new Label { Text = "Weight", FontFamily = "OpenSansSemibold" });
+        Body.Children.Add(weightEntry);
+        Body.Children.Add(new Label { Text = "Reps", FontFamily = "OpenSansSemibold" });
+        Body.Children.Add(repsEntry);
+        Body.Children.Add(new Label { Text = "Notes", FontFamily = "OpenSansSemibold" });
+        Body.Children.Add(notesEntry);
+        Body.Children.Add(new Label { Text = "Status", FontFamily = "OpenSansSemibold" });
+        Body.Children.Add(statusPicker);
+        Body.Children.Add(feedback);
+        AddAction("Save changes", Save, primary: true);
+        AddAction("Cancel", Cancel);
+    }
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        var index = WorkoutNavigationState.EditingSetIndex;
+        if (index >= 0 && index < session.Sets.Count)
+        {
+            var set = session.Sets[index];
+            weightEntry.Text = set.Weight?.ToString("g", CultureInfo.InvariantCulture);
+            repsEntry.Text = set.Reps.ToString(CultureInfo.InvariantCulture);
+            notesEntry.Text = set.Notes;
+            statusPicker.SelectedItem = set.Status.ToString();
+            feedback.Text = string.Empty;
+        }
+    }
+
+    private Task Save()
+    {
+        var index = WorkoutNavigationState.EditingSetIndex;
+        if (index < 0 || index >= session.Sets.Count)
+        {
+            feedback.Text = "The selected set is no longer available.";
+            return Task.CompletedTask;
+        }
+
+        var reps = int.TryParse(repsEntry.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedReps) ? parsedReps : -1;
+        decimal? weight = string.IsNullOrWhiteSpace(weightEntry.Text)
+            ? null
+            : decimal.TryParse(weightEntry.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedWeight) ? parsedWeight : -1;
+        var status = Enum.TryParse<WorkoutSetStatus>(statusPicker.SelectedItem?.ToString(), out var parsedStatus)
+            ? parsedStatus
+            : WorkoutSetStatus.Completed;
+
+        try
+        {
+            session.UpdateSet(index, weight, reps, notesEntry.Text, status, session.Sets[index].IsPerDumbbell);
+            return Shell.Current.GoToAsync("..");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            feedback.Text = "Completed sets need reps, and weight must be greater than zero when supplied.";
+            return Task.CompletedTask;
+        }
+    }
+
+    private Task Cancel() => Shell.Current.GoToAsync("..");
 }
 
 public sealed class WorkoutSummaryPage : FeaturePage

@@ -6,6 +6,7 @@ public static class AppRoutes
     public const string WeeklyPlan = "WeeklyPlan";
     public const string StartWorkout = "StartWorkout";
     public const string ActiveWorkout = "ActiveWorkout";
+    public const string EditWorkoutSet = "EditWorkoutSet";
     public const string WorkoutSummary = "WorkoutSummary";
     public const string ActivityLog = "ActivityLog";
     public const string History = "History";
@@ -18,6 +19,7 @@ public static class AppRoutes
         WeeklyPlan,
         StartWorkout,
         ActiveWorkout,
+        EditWorkoutSet,
         WorkoutSummary,
         ActivityLog,
         History,
