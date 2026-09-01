@@ -35,4 +35,17 @@ public class ScaffoldTests
 
         Assert.Equal(expectedRoutes, AppRoutes.All);
     }
+
+    [Fact]
+    public void WorkoutSessionRecordsSetsAndCalculatesSummaryTotals()
+    {
+        var session = new WorkoutSession("Upper Body");
+
+        session.AddSet("Bench Press", 60, 10);
+        session.AddSet("Bench Press", 65, 8);
+
+        Assert.Equal(2, session.TotalSets);
+        Assert.Equal(1120m, session.TotalVolume);
+        Assert.Equal("Upper Body", session.Name);
+    }
 }

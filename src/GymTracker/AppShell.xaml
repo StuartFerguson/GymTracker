@@ -3,12 +3,16 @@
     x:Class="GymTracker.AppShell"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:local="clr-namespace:GymTracker"
+    xmlns:pages="clr-namespace:GymTracker.Pages"
     Title="GymTracker">
 
-    <ShellContent
-        Title="Dashboard"
-        ContentTemplate="{DataTemplate local:MainPage}"
-        Route="Dashboard" />
+    <FlyoutItem Title="GymTracker">
+        <ShellContent Title="Dashboard" ContentTemplate="{DataTemplate pages:DashboardPage}" Route="Dashboard" />
+        <ShellContent Title="Weekly Plan" ContentTemplate="{DataTemplate pages:WeeklyPlanPage}" Route="WeeklyPlan" />
+        <ShellContent Title="Activity Log" ContentTemplate="{DataTemplate pages:ActivityLogPage}" Route="ActivityLog" />
+        <ShellContent Title="History" ContentTemplate="{DataTemplate pages:HistoryPage}" Route="History" />
+        <ShellContent Title="Exercise Progress" ContentTemplate="{DataTemplate pages:ExerciseProgressPage}" Route="ExerciseProgress" />
+        <ShellContent Title="Backup and Settings" ContentTemplate="{DataTemplate pages:BackupSettingsPage}" Route="BackupSettings" />
+    </FlyoutItem>
 
 </Shell>

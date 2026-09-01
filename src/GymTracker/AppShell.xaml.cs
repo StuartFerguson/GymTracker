@@ -1,4 +1,5 @@
 using GymTracker.Application;
+using GymTracker.Pages;
 
 namespace GymTracker;
 
@@ -8,9 +9,8 @@ public partial class AppShell : Shell
     {
         InitializeComponent();
 
-        foreach (var route in AppRoutes.All.Skip(1))
-        {
-            Routing.RegisterRoute(route, typeof(MainPage));
-        }
+        Routing.RegisterRoute(AppRoutes.StartWorkout, typeof(StartWorkoutPage));
+        Routing.RegisterRoute(AppRoutes.ActiveWorkout, typeof(ActiveWorkoutPage));
+        Routing.RegisterRoute(AppRoutes.WorkoutSummary, typeof(WorkoutSummaryPage));
     }
 }
