@@ -1,5 +1,6 @@
 using System.Globalization;
 using GymTracker.Application;
+using GymTracker.Core.Domain;
 using Microsoft.Maui.Controls.Shapes;
 
 namespace GymTracker.Pages;
@@ -7,6 +8,8 @@ namespace GymTracker.Pages;
 internal static class WorkoutNavigationState
 {
     public static WorkoutSession? CurrentSession { get; set; }
+
+    public static ExerciseTemplate? CurrentTemplate { get; set; }
 
     public static int EditingSetIndex { get; set; } = -1;
 }
@@ -136,9 +139,15 @@ public sealed class WeeklyPlanPage : FeaturePage
 {
     public WeeklyPlanPage() : base("Weekly plan", "A simple view of the work ahead")
     {
-        AddSection("Monday", "Upper Body  •  6 exercises");
-        AddSection("Wednesday", "Lower Body  •  5 exercises");
-        AddSection("Friday", "Full Body  •  7 exercises");
+        var catalog = new BuiltInWorkoutCatalog();
+        foreach (var day in catalog.WeeklyPlan)
+        {
+            var detail = day.TemplateName == "Rest"
+                ? "Rest day"
+                : $"{catalog.GetTemplate(day.TemplateName).Items.Count} exercises";
+            AddSection(day.Day.ToString(), $"{day.TemplateName}  •  {detail}");
+        }
+
         AddAction("Start Monday workout", () => Shell.Current.GoToAsync(AppRoutes.StartWorkout), primary: true);
     }
 }
@@ -147,20 +156,30 @@ public sealed class StartWorkoutPage : FeaturePage
 {
     public StartWorkoutPage() : base("Start workout", "Choose a session and get straight to your first set")
     {
-        AddSection("Upper Body", "Bench press, row, shoulder press, pulldown");
-        AddAction("Start Upper Body", StartSession, primary: true);
+        var catalog = new BuiltInWorkoutCatalog();
+        foreach (var template in catalog.Templates)
+        {
+            var templateName = template.Name;
+            var exercises = string.Join(", ", template.Items.Select(item => item.ExerciseNameSnapshot));
+            AddSection(templateName, exercises);
+            AddAction($"Start {templateName}", () => StartSession(catalog, templateName), primary: templateName == "Push");
+        }
+
         AddSection("Quick start", "Begin with an empty session and add exercises as you go");
-        AddAction("Start quick workout", StartSession);
+        AddAction("Start quick workout", () => StartQuickSession());
     }
 
-    private static Task StartSession()
+    private static Task StartSession(BuiltInWorkoutCatalog catalog, string templateName)
     {
-        WorkoutNavigationState.CurrentSession = new WorkoutSession("Upper Body",
-        [
-            new WorkoutSet("Bench Press", 60, 10),
-            new WorkoutSet("Dumbbell Bench Press", 22.5m, 10, IsPerDumbbell: true),
-            new WorkoutSet("Pull Up", null, 8)
-        ]);
+        WorkoutNavigationState.CurrentTemplate = catalog.GetTemplate(templateName);
+        WorkoutNavigationState.CurrentSession = catalog.StartSession(templateName);
+        return Shell.Current.GoToAsync(AppRoutes.ActiveWorkout);
+    }
+
+    private static Task StartQuickSession()
+    {
+        WorkoutNavigationState.CurrentTemplate = null;
+        WorkoutNavigationState.CurrentSession = new WorkoutSession("Quick workout");
         return Shell.Current.GoToAsync(AppRoutes.ActiveWorkout);
     }
 }
@@ -176,15 +195,21 @@ public sealed class ActiveWorkoutPage : FeaturePage
     private readonly Label feedback;
     private readonly VerticalStackLayout setsLayout;
 
-    public ActiveWorkoutPage() : base("Upper Body", "Log each set as you train")
+    public ActiveWorkoutPage() : base(
+        WorkoutNavigationState.CurrentSession?.Name ?? "Workout",
+        "Log each set as you train")
     {
-        session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Upper Body");
+        session = WorkoutNavigationState.CurrentSession ??= new WorkoutSession("Quick workout");
+        var template = WorkoutNavigationState.CurrentTemplate;
+        var exercises = template is null
+            ? new[] { "Barbell Bench Press", "Barbell Row", "Overhead Press", "Pull Up" }
+            : template.Items.Select(item => item.ExerciseNameSnapshot).ToArray();
 
         Body.Children.Add(new Label { Text = "Current exercise", FontFamily = "OpenSansSemibold", FontSize = 17 });
         exercisePicker = new Picker
         {
             Title = "Select exercise",
-            ItemsSource = new[] { "Bench Press", "Barbell Row", "Shoulder Press", "Dumbbell Bench Press", "Pull Up" },
+            ItemsSource = exercises,
             SelectedIndex = 0
         };
         Body.Children.Add(exercisePicker);
@@ -212,7 +237,7 @@ public sealed class ActiveWorkoutPage : FeaturePage
         Body.Children.Add(new Label { Text = "Logged sets", FontFamily = "OpenSansSemibold", FontSize = 17 });
         Body.Children.Add(setsLayout);
         AddAction("Use last session", UseLastSession);
-        AddAction("Add set", () => AddSet(exercisePicker.SelectedItem?.ToString() ?? "Bench Press"), primary: true);
+        AddAction("Add set", () => AddSet(exercisePicker.SelectedItem?.ToString() ?? exercises[0]), primary: true);
         AddAction("Finish workout", FinishWorkout);
     }
 
