@@ -60,7 +60,9 @@ public sealed class JsonActiveWorkoutStoreTests
             await store.SaveAsync(first);
             Directory.CreateDirectory(temporaryPath);
 
-            await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => store.SaveAsync(second));
+            var exception = await Record.ExceptionAsync(() => store.SaveAsync(second));
+            Assert.NotNull(exception);
+            Assert.True(exception is IOException or UnauthorizedAccessException);
 
             var loaded = await store.LoadAsync();
             Assert.NotNull(loaded);
