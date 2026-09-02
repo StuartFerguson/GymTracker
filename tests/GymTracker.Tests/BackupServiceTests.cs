@@ -80,6 +80,9 @@ public sealed class BackupServiceTests
         public Task<BackupMutationResult> MergeAsync(BackupDataSet data, CancellationToken cancellationToken = default) =>
             Task.FromResult(new BackupMutationResult(0, 0));
 
+        public Task<IReadOnlyList<string>> ValidateMergeReferencesAsync(BackupDataSet data, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+
         public Task CreateRecoveryCopyAsync(string destinationPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

@@ -136,6 +136,53 @@ public sealed class SqliteBackupDataStoreTests
         }
     }
 
+    [Fact]
+    public async Task Merge_reference_validation_accepts_references_to_existing_rows()
+    {
+        var path = NewPath();
+        try
+        {
+            var repository = new SqliteBackupDataStore($"Data Source={path};Pooling=False");
+            await repository.ReadAsync();
+            var exerciseId = Guid.NewGuid();
+            var templateId = Guid.NewGuid();
+            await ExecuteAsync(path, $"INSERT INTO exercises (id, name, exercise_type, default_unit, is_active, category) VALUES ('{exerciseId:D}', 'Existing', 0, 0, 1, 0); INSERT INTO exercise_templates (id, name, updated_at_utc) VALUES ('{templateId:D}', 'Existing template', '2026-09-02T12:00:00.0000000+00:00');");
+
+            var errors = await repository.ValidateMergeReferencesAsync(new BackupDataSet(
+                [],
+                [new ExerciseTemplate(Guid.NewGuid(), "Imported", [new ExerciseTemplateItem(exerciseId, "Existing", 0, 1, 1, null)], DateTimeOffset.UtcNow)],
+                [new PlannedSession(Guid.NewGuid(), templateId, "Existing template", new DateOnly(2026, 9, 2), 0)],
+                [], [], [], [], []));
+
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            DeletePath(path);
+        }
+    }
+
+    [Fact]
+    public async Task Merge_reference_validation_rejects_unresolved_references()
+    {
+        var path = NewPath();
+        try
+        {
+            var repository = new SqliteBackupDataStore($"Data Source={path};Pooling=False");
+            await repository.ReadAsync();
+            var errors = await repository.ValidateMergeReferencesAsync(new BackupDataSet(
+                [],
+                [new ExerciseTemplate(Guid.NewGuid(), "Imported", [new ExerciseTemplateItem(Guid.NewGuid(), "Missing", 0, 1, 1, null)], DateTimeOffset.UtcNow)],
+                [], [], [], [], [], []));
+
+            Assert.NotEmpty(errors);
+        }
+        finally
+        {
+            DeletePath(path);
+        }
+    }
+
     private static string NewPath() => Path.Combine(Path.GetTempPath(), $"gymtracker-backup-{Guid.NewGuid():N}.db");
 
     private static async Task ExecuteAsync(string path, string sql)

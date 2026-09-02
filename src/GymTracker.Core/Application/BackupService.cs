@@ -33,17 +33,21 @@ public sealed class BackupService(IBackupDataStore dataStore, IActiveWorkoutStor
         return new BackupExportResult(path, fileName, new FileInfo(path).Length, document.Checksum, document);
     }
 
-    public async Task<BackupFileValidationResult> ValidateFileAsync(string path, CancellationToken cancellationToken = default)
+    public async Task<BackupFileValidationResult> ValidateFileAsync(string path, CancellationToken cancellationToken = default, BackupImportMode mode = BackupImportMode.Replace)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var json = await File.ReadAllTextAsync(path, cancellationToken);
-        var result = BackupJson.DeserializeAndValidate(json);
-        return new BackupFileValidationResult(result.Document, result.Errors);
+        var result = BackupJson.DeserializeAndValidate(json, mode == BackupImportMode.Merge);
+        if (!result.IsValid || mode != BackupImportMode.Merge) return new BackupFileValidationResult(result.Document, result.Errors);
+        var data = new BackupDataSet(result.Document!.Exercises, result.Document.ExerciseTemplates, result.Document.PlannedSessions, result.Document.WorkoutSessions,
+            result.Document.WorkoutSets, result.Document.Activities, result.Document.Recommendations, result.Document.UserSettings);
+        var referenceErrors = await dataStore.ValidateMergeReferencesAsync(data, cancellationToken);
+        return new BackupFileValidationResult(result.Document, result.Errors.Concat(referenceErrors).ToArray());
     }
 
     public async Task<BackupImportResult> ImportAsync(string path, BackupImportMode mode, CancellationToken cancellationToken = default)
     {
-        var validation = await ValidateFileAsync(path, cancellationToken);
+        var validation = await ValidateFileAsync(path, cancellationToken, mode);
         if (!validation.IsValid)
         {
             return new BackupImportResult(null, validation.Errors);

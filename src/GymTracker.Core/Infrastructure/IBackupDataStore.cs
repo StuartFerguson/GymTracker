@@ -21,5 +21,7 @@ public interface IBackupDataStore
 
     Task<BackupMutationResult> MergeAsync(BackupDataSet data, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<string>> ValidateMergeReferencesAsync(BackupDataSet data, CancellationToken cancellationToken = default);
+
     Task CreateRecoveryCopyAsync(string destinationPath, CancellationToken cancellationToken = default);
 }
