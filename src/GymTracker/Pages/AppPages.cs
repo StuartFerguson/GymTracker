@@ -902,6 +902,7 @@ public sealed class BackupSettingsPage : FeaturePage
             var result = await WorkoutNavigationState.Backup.ImportAsync(path, importMode);
             feedback.Text = result.IsSuccessful
                 ? $"Import complete: {result.Mutation!.InsertedRecords:N0} inserted, {result.Mutation.SkippedRecords:N0} skipped."
+                    + (result.Mutation.RecoveryCopyPath is null ? string.Empty : $" Recovery copy: {result.Mutation.RecoveryCopyPath}")
                 : $"Import failed: {string.Join(" ", result.Errors)}";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
