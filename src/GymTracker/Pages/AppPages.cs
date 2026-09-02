@@ -26,6 +26,10 @@ internal static class WorkoutNavigationState
     public static ProgressService Progress =>
         Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<ProgressService>()
         ?? throw new InvalidOperationException("The MAUI service provider is not available.");
+
+    public static BackupService Backup =>
+        Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<BackupService>()
+        ?? throw new InvalidOperationException("The MAUI service provider is not available.");
 }
 
 public abstract class FeaturePage : ContentPage
@@ -836,10 +840,73 @@ public sealed class ExerciseProgressPage : FeaturePage
 
 public sealed class BackupSettingsPage : FeaturePage
 {
+    private readonly Label feedback;
+
     public BackupSettingsPage() : base("Backup and settings", "Keep your local training data under your control")
     {
-        AddSection("Backup status", "Last backup: Not configured");
-        AddAction("Create backup", () => DisplayAlertAsync("Backup", "Backup will be available when persistence is added.", "OK"), primary: true);
+        AddSection("Backup status", "Backups are stored as versioned JSON files in local app storage.");
+        feedback = new Label { TextColor = Color.FromArgb("#5C677D") };
+        Body.Children.Add(feedback);
+        AddAction("Create backup", CreateBackupAsync, primary: true);
+        AddAction("Import backup", ImportBackupAsync);
         AddAction("App preferences", () => DisplayAlertAsync("Settings", "Preferences will be available in a later release.", "OK"));
+    }
+
+    private async Task CreateBackupAsync()
+    {
+        try
+        {
+            var result = await WorkoutNavigationState.Backup.ExportAsync();
+            feedback.Text = $"Backup created: {result.FileName} ({result.SizeBytes:N0} bytes).";
+            await Share.Default.RequestAsync(new ShareFileRequest
+            {
+                Title = "Share GymTracker backup",
+                File = new ShareFile(result.Path)
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            feedback.Text = "The backup could not be created. Check available storage and try again.";
+        }
+    }
+
+    private async Task ImportBackupAsync()
+    {
+        try
+        {
+            var file = await FilePicker.Default.PickAsync(new PickOptions { PickerTitle = "Choose a GymTracker backup" });
+            if (file is null) return;
+
+            var path = file.FullPath;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                feedback.Text = "The selected file could not be read.";
+                return;
+            }
+
+            var validation = await WorkoutNavigationState.Backup.ValidateFileAsync(path);
+            if (!validation.IsValid)
+            {
+                feedback.Text = $"Backup is invalid: {string.Join(" ", validation.Errors)}";
+                return;
+            }
+
+            var mode = await DisplayActionSheetAsync("Import backup", "Cancel", null, "Replace local data", "Merge with local data");
+            if (mode is not ("Replace local data" or "Merge with local data")) return;
+            var importMode = mode == "Replace local data" ? BackupImportMode.Replace : BackupImportMode.Merge;
+            var confirmed = await DisplayAlertAsync("Confirm import", importMode == BackupImportMode.Replace
+                ? "Replace will overwrite local data after creating a recoverable local copy. Continue?"
+                : "Merge will keep local data and skip conflicting records. Continue?", "Continue", "Cancel");
+            if (!confirmed) return;
+
+            var result = await WorkoutNavigationState.Backup.ImportAsync(path, importMode);
+            feedback.Text = result.IsSuccessful
+                ? $"Import complete: {result.Mutation!.InsertedRecords:N0} inserted, {result.Mutation.SkippedRecords:N0} skipped."
+                : $"Import failed: {string.Join(" ", result.Errors)}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            feedback.Text = "The backup could not be imported. Check the file and available storage, then try again.";
+        }
     }
 }

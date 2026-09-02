@@ -25,6 +25,8 @@ public static class MauiProgram
             new SqliteActivityRepository($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "gymtracker.db")}"));
         builder.Services.AddSingleton<IWorkoutHistoryRepository>(_ =>
             new SqliteWorkoutHistoryRepository($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "gymtracker.db")}"));
+        builder.Services.AddSingleton<IBackupDataStore>(_ =>
+            new SqliteBackupDataStore($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "gymtracker.db")}"));
 
 #if DEBUG
         builder.Logging.AddDebug();
