@@ -15,13 +15,18 @@ public sealed class ProgressionRecommendationEngine
         if (string.IsNullOrWhiteSpace(request.ExerciseName)) throw new ArgumentException("An exercise name is required.", nameof(request));
         if (request.TargetRepetitions <= 0) throw new ArgumentOutOfRangeException(nameof(request), "The target repetitions must be positive.");
         if (request.IsWeighted && request.WeightIncrementKg <= 0) throw new ArgumentOutOfRangeException(nameof(request), "The weight increment must be positive for weighted exercises.");
+        if (request.FallbackRepetitions is <= 0) throw new ArgumentOutOfRangeException(nameof(request), "Fallback repetitions must be positive when supplied.");
+        if (request.FallbackWeightKg is <= 0) throw new ArgumentOutOfRangeException(nameof(request), "Fallback weight must be positive when supplied.");
         ArgumentNullException.ThrowIfNull(request.History);
 
         var latest = request.History
             .Where(entry => string.Equals(entry.Status, "Completed", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(entry => entry.CompletedAt)
             .FirstOrDefault();
-        if (latest is null) return null;
+        if (latest is null)
+        {
+            return CreateNewExerciseFallback(request);
+        }
 
         if (ContainsIndicator(latest.Notes, PainIndicators))
         {
@@ -62,6 +67,15 @@ public sealed class ProgressionRecommendationEngine
 
     private static ProgressionRecommendation Create(decimal? weight, int repetitions, RecommendationConfidence confidence, string ruleKey, string explanation) =>
         new(weight, repetitions, confidence, ruleKey, explanation, SafetyDisclaimer);
+
+    private static ProgressionRecommendation? CreateNewExerciseFallback(ProgressionRecommendationRequest request)
+    {
+        if (request.FallbackRepetitions is null || (request.IsWeighted && request.FallbackWeightKg is null)) return null;
+
+        return Create(request.IsWeighted ? request.FallbackWeightKg : null, request.FallbackRepetitions.Value,
+            RecommendationConfidence.Low, "fallback-new-exercise",
+            $"Start with {FormatValue(request.IsWeighted ? request.FallbackWeightKg : null, request.FallbackRepetitions.Value)} on the first use because there is no successful history for this exercise.");
+    }
 
     private static bool ContainsIndicator(string? notes, IEnumerable<string> indicators) =>
         !string.IsNullOrWhiteSpace(notes) && indicators.Any(indicator => notes.Contains(indicator, StringComparison.OrdinalIgnoreCase));
