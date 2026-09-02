@@ -66,10 +66,36 @@ public sealed class SqliteBackupDataStore(string connectionString) : IBackupData
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
         await using var connection = await OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, cancellationToken);
+        await ExecuteAsync(connection, null, "PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken);
         await connection.CloseAsync();
         var directory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        File.Copy(GetDatabasePath(), destinationPath, true);
+        var databasePath = GetDatabasePath();
+        File.Copy(databasePath, destinationPath, true);
+        foreach (var suffix in new[] { "-wal", "-shm" })
+        {
+            var sidecarPath = databasePath + suffix;
+            var recoverySidecarPath = destinationPath + suffix;
+            if (File.Exists(sidecarPath)) File.Copy(sidecarPath, recoverySidecarPath, true);
+            else if (File.Exists(recoverySidecarPath)) File.Delete(recoverySidecarPath);
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> ValidateMergeReferencesAsync(BackupDataSet data, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var existing = await ReadAsync(cancellationToken);
+        var exerciseIds = existing.Exercises.Select(x => x.Id).Concat(data.Exercises.Select(x => x.Id)).ToHashSet();
+        var templateIds = existing.ExerciseTemplates.Select(x => x.Id).Concat(data.ExerciseTemplates.Select(x => x.Id)).ToHashSet();
+        var plannedIds = existing.PlannedSessions.Select(x => x.Id).Concat(data.PlannedSessions.Select(x => x.Id)).ToHashSet();
+        var sessionIds = existing.WorkoutSessions.Select(x => x.Id).Concat(data.WorkoutSessions.Select(x => x.Id)).ToHashSet();
+        var errors = new List<string>();
+        foreach (var item in data.ExerciseTemplates.SelectMany(x => x.Items).Where(x => !exerciseIds.Contains(x.ExerciseId))) errors.Add($"Exercise template item references missing exercise {item.ExerciseId:D}.");
+        foreach (var session in data.PlannedSessions.Where(x => !templateIds.Contains(x.TemplateId))) errors.Add($"Planned session {session.Id:D} references missing template {session.TemplateId:D}.");
+        foreach (var session in data.WorkoutSessions.Where(x => x.PlannedSessionId is not null && !plannedIds.Contains(x.PlannedSessionId.Value))) errors.Add($"Workout session {session.Id:D} references missing planned session {session.PlannedSessionId!.Value:D}.");
+        foreach (var set in data.WorkoutSets.Where(x => !sessionIds.Contains(x.WorkoutSessionId) || !exerciseIds.Contains(x.ExerciseId))) errors.Add($"Workout set {set.Id:D} has an unresolved session or exercise reference.");
+        foreach (var recommendation in data.Recommendations.Where(x => !exerciseIds.Contains(x.ExerciseId))) errors.Add($"Recommendation {recommendation.Id:D} references missing exercise {recommendation.ExerciseId:D}.");
+        return errors;
     }
 
     public async Task<BackupMutationResult> ReplaceAsync(BackupDataSet data, string recoveryCopyPath, CancellationToken cancellationToken = default)

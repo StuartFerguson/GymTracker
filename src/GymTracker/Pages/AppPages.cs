@@ -884,16 +884,16 @@ public sealed class BackupSettingsPage : FeaturePage
                 return;
             }
 
-            var validation = await WorkoutNavigationState.Backup.ValidateFileAsync(path);
+            var mode = await DisplayActionSheetAsync("Import backup", "Cancel", null, "Replace local data", "Merge with local data");
+            if (mode is not ("Replace local data" or "Merge with local data")) return;
+            var importMode = mode == "Replace local data" ? BackupImportMode.Replace : BackupImportMode.Merge;
+            var validation = await WorkoutNavigationState.Backup.ValidateFileAsync(path, mode: importMode);
             if (!validation.IsValid)
             {
                 feedback.Text = $"Backup is invalid: {string.Join(" ", validation.Errors)}";
                 return;
             }
 
-            var mode = await DisplayActionSheetAsync("Import backup", "Cancel", null, "Replace local data", "Merge with local data");
-            if (mode is not ("Replace local data" or "Merge with local data")) return;
-            var importMode = mode == "Replace local data" ? BackupImportMode.Replace : BackupImportMode.Merge;
             var confirmed = await DisplayAlertAsync("Confirm import", importMode == BackupImportMode.Replace
                 ? "Replace will overwrite local data after creating a recoverable local copy. Continue?"
                 : "Merge will keep local data and skip conflicting records. Continue?", "Continue", "Cancel");

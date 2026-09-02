@@ -56,6 +56,20 @@ public sealed class BackupJsonTests
         Assert.Contains(result.Errors, error => error.Contains("checksum", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Deserialize_reports_short_checksum_without_throwing()
+    {
+        var json = BackupJson.Serialize(CreateDocument());
+        var payload = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json)!;
+        payload["checksum"] = "short";
+        var shortChecksumJson = System.Text.Json.JsonSerializer.Serialize(payload);
+
+        var result = BackupJson.DeserializeAndValidate(shortChecksumJson);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("checksum", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static BackupDocument CreateDocument(bool reverseExercises = false)
     {
         var firstId = Guid.Parse("00000000-0000-0000-0000-000000000001");

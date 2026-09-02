@@ -54,7 +54,7 @@ public static class BackupJson
         return JsonSerializer.Serialize(withChecksum, Options);
     }
 
-    public static BackupJsonResult DeserializeAndValidate(string json)
+    public static BackupJsonResult DeserializeAndValidate(string json, bool allowExternalReferences = false)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -76,20 +76,22 @@ public static class BackupJson
             return new BackupJsonResult(null, ["JSON must contain a backup document."]);
         }
 
-        var errors = BackupValidation.Validate(document).Errors.ToList();
+        var errors = BackupValidation.Validate(document, allowExternalReferences).Errors.ToList();
         if (string.IsNullOrWhiteSpace(document.Checksum))
         {
             errors.Add("Checksum is required.");
         }
-        else if (!CryptographicOperations.FixedTimeEquals(
-                     Encoding.ASCII.GetBytes(document.Checksum),
-                     Encoding.ASCII.GetBytes(ComputeChecksum(document))))
+        else if (!IsValidChecksum(document.Checksum, ComputeChecksum(document)))
         {
             errors.Add("Checksum does not match the backup contents.");
         }
 
         return new BackupJsonResult(document, errors);
     }
+
+    private static bool IsValidChecksum(string supplied, string expected) =>
+        supplied.Length == expected.Length &&
+        CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(supplied), Encoding.ASCII.GetBytes(expected));
 
     private static string ComputeChecksum(BackupDocument document)
     {

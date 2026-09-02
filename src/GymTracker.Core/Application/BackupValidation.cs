@@ -4,7 +4,7 @@ namespace GymTracker.Application;
 
 public static class BackupValidation
 {
-    public static BackupValidationResult Validate(BackupDocument? document)
+    public static BackupValidationResult Validate(BackupDocument? document, bool allowExternalReferences = false)
     {
         var errors = new List<string>();
         if (document is null)
@@ -24,12 +24,12 @@ public static class BackupValidation
         }
 
         ValidateExercises(document.Exercises, errors);
-        ValidateTemplates(document.ExerciseTemplates, document.Exercises, errors);
-        ValidatePlannedSessions(document.PlannedSessions, document.ExerciseTemplates, errors);
-        ValidateWorkoutSessions(document.WorkoutSessions, document.PlannedSessions, errors);
-        ValidateWorkoutSets(document.WorkoutSets, document.WorkoutSessions, document.Exercises, errors);
+        ValidateTemplates(document.ExerciseTemplates, document.Exercises, errors, allowExternalReferences);
+        ValidatePlannedSessions(document.PlannedSessions, document.ExerciseTemplates, errors, allowExternalReferences);
+        ValidateWorkoutSessions(document.WorkoutSessions, document.PlannedSessions, errors, allowExternalReferences);
+        ValidateWorkoutSets(document.WorkoutSets, document.WorkoutSessions, document.Exercises, errors, allowExternalReferences);
         ValidateActivities(document.Activities, errors);
-        ValidateRecommendations(document.Recommendations, document.Exercises, errors);
+        ValidateRecommendations(document.Recommendations, document.Exercises, errors, allowExternalReferences);
         ValidateSettings(document.UserSettings, errors);
         ValidateActiveWorkout(document.ActiveWorkout, errors);
 
@@ -56,7 +56,7 @@ public static class BackupValidation
         }
     }
 
-    private static void ValidateTemplates(IReadOnlyList<ExerciseTemplate>? templates, IReadOnlyList<Exercise>? exercises, List<string> errors)
+    private static void ValidateTemplates(IReadOnlyList<ExerciseTemplate>? templates, IReadOnlyList<Exercise>? exercises, List<string> errors, bool allowExternalReferences)
     {
         if (templates is null)
         {
@@ -83,7 +83,7 @@ public static class BackupValidation
             {
                 var item = template.Items[itemIndex];
                 if (!positions.Add(item.Position)) errors.Add($"ExerciseTemplates[{index}].Items has duplicate position {item.Position}.");
-                if (!exerciseIds.Contains(item.ExerciseId)) errors.Add($"ExerciseTemplates[{index}].Items[{itemIndex}].ExerciseId does not reference an exercise.");
+                if (!allowExternalReferences && !exerciseIds.Contains(item.ExerciseId)) errors.Add($"ExerciseTemplates[{index}].Items[{itemIndex}].ExerciseId does not reference an exercise.");
                 if (string.IsNullOrWhiteSpace(item.ExerciseNameSnapshot)) errors.Add($"ExerciseTemplates[{index}].Items[{itemIndex}].ExerciseNameSnapshot is required.");
                 if (item.Position < 0) errors.Add($"ExerciseTemplates[{index}].Items[{itemIndex}].Position must not be negative.");
                 if (item.TargetSets < 0) errors.Add($"ExerciseTemplates[{index}].Items[{itemIndex}].TargetSets must not be negative.");
@@ -93,7 +93,7 @@ public static class BackupValidation
         }
     }
 
-    private static void ValidatePlannedSessions(IReadOnlyList<PlannedSession>? sessions, IReadOnlyList<ExerciseTemplate>? templates, List<string> errors)
+    private static void ValidatePlannedSessions(IReadOnlyList<PlannedSession>? sessions, IReadOnlyList<ExerciseTemplate>? templates, List<string> errors, bool allowExternalReferences)
     {
         if (sessions is null)
         {
@@ -107,13 +107,13 @@ public static class BackupValidation
         {
             var session = sessions[index];
             if (session.Id == Guid.Empty) errors.Add($"PlannedSessions[{index}].Id must not be empty.");
-            if (!templateIds.Contains(session.TemplateId)) errors.Add($"PlannedSessions[{index}].TemplateId does not reference a template.");
+            if (!allowExternalReferences && !templateIds.Contains(session.TemplateId)) errors.Add($"PlannedSessions[{index}].TemplateId does not reference a template.");
             if (string.IsNullOrWhiteSpace(session.TemplateNameSnapshot)) errors.Add($"PlannedSessions[{index}].TemplateNameSnapshot is required.");
             if (session.Position < 0) errors.Add($"PlannedSessions[{index}].Position must not be negative.");
         }
     }
 
-    private static void ValidateWorkoutSessions(IReadOnlyList<WorkoutSessionRecord>? sessions, IReadOnlyList<PlannedSession>? plannedSessions, List<string> errors)
+    private static void ValidateWorkoutSessions(IReadOnlyList<WorkoutSessionRecord>? sessions, IReadOnlyList<PlannedSession>? plannedSessions, List<string> errors, bool allowExternalReferences)
     {
         if (sessions is null)
         {
@@ -127,7 +127,7 @@ public static class BackupValidation
         {
             var session = sessions[index];
             if (session.Id == Guid.Empty) errors.Add($"WorkoutSessions[{index}].Id must not be empty.");
-            if (session.PlannedSessionId is not null && !plannedIds.Contains(session.PlannedSessionId.Value)) errors.Add($"WorkoutSessions[{index}].PlannedSessionId does not reference a planned session.");
+            if (!allowExternalReferences && session.PlannedSessionId is not null && !plannedIds.Contains(session.PlannedSessionId.Value)) errors.Add($"WorkoutSessions[{index}].PlannedSessionId does not reference a planned session.");
             if (string.IsNullOrWhiteSpace(session.TemplateNameSnapshot)) errors.Add($"WorkoutSessions[{index}].TemplateNameSnapshot is required.");
             if (string.IsNullOrWhiteSpace(session.WeightUnit)) errors.Add($"WorkoutSessions[{index}].WeightUnit is required.");
             if (session.StartedAt == default) errors.Add($"WorkoutSessions[{index}].StartedAt must be a valid timestamp.");
@@ -135,7 +135,7 @@ public static class BackupValidation
         }
     }
 
-    private static void ValidateWorkoutSets(IReadOnlyList<WorkoutSetRecord>? sets, IReadOnlyList<WorkoutSessionRecord>? sessions, IReadOnlyList<Exercise>? exercises, List<string> errors)
+    private static void ValidateWorkoutSets(IReadOnlyList<WorkoutSetRecord>? sets, IReadOnlyList<WorkoutSessionRecord>? sessions, IReadOnlyList<Exercise>? exercises, List<string> errors, bool allowExternalReferences)
     {
         if (sets is null)
         {
@@ -151,8 +151,8 @@ public static class BackupValidation
         {
             var set = sets[index];
             if (set.Id == Guid.Empty) errors.Add($"WorkoutSets[{index}].Id must not be empty.");
-            if (!sessionIds.Contains(set.WorkoutSessionId)) errors.Add($"WorkoutSets[{index}].WorkoutSessionId does not reference a workout session.");
-            if (!exerciseIds.Contains(set.ExerciseId)) errors.Add($"WorkoutSets[{index}].ExerciseId does not reference an exercise.");
+            if (!allowExternalReferences && !sessionIds.Contains(set.WorkoutSessionId)) errors.Add($"WorkoutSets[{index}].WorkoutSessionId does not reference a workout session.");
+            if (!allowExternalReferences && !exerciseIds.Contains(set.ExerciseId)) errors.Add($"WorkoutSets[{index}].ExerciseId does not reference an exercise.");
             if (string.IsNullOrWhiteSpace(set.ExerciseNameSnapshot)) errors.Add($"WorkoutSets[{index}].ExerciseNameSnapshot is required.");
             if (set.SetNumber < 0) errors.Add($"WorkoutSets[{index}].SetNumber must not be negative.");
             if (set.WeightKg < 0) errors.Add($"WorkoutSets[{index}].WeightKg must not be negative.");
@@ -184,7 +184,7 @@ public static class BackupValidation
         }
     }
 
-    private static void ValidateRecommendations(IReadOnlyList<Recommendation>? recommendations, IReadOnlyList<Exercise>? exercises, List<string> errors)
+    private static void ValidateRecommendations(IReadOnlyList<Recommendation>? recommendations, IReadOnlyList<Exercise>? exercises, List<string> errors, bool allowExternalReferences)
     {
         if (recommendations is null)
         {
@@ -198,7 +198,7 @@ public static class BackupValidation
         {
             var recommendation = recommendations[index];
             if (recommendation.Id == Guid.Empty) errors.Add($"Recommendations[{index}].Id must not be empty.");
-            if (!exerciseIds.Contains(recommendation.ExerciseId)) errors.Add($"Recommendations[{index}].ExerciseId does not reference an exercise.");
+            if (!allowExternalReferences && !exerciseIds.Contains(recommendation.ExerciseId)) errors.Add($"Recommendations[{index}].ExerciseId does not reference an exercise.");
             if (string.IsNullOrWhiteSpace(recommendation.ExerciseNameSnapshot)) errors.Add($"Recommendations[{index}].ExerciseNameSnapshot is required.");
             if (string.IsNullOrWhiteSpace(recommendation.RuleKey)) errors.Add($"Recommendations[{index}].RuleKey is required.");
             if (string.IsNullOrWhiteSpace(recommendation.Message)) errors.Add($"Recommendations[{index}].Message is required.");
