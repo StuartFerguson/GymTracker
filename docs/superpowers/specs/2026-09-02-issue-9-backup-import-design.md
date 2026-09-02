@@ -49,6 +49,7 @@ Use immutable records in `GymTracker.Core.Application`:
 public sealed record BackupDocument(
     string FormatVersion,
     DateTimeOffset ExportedAt,
+    string Checksum,
     IReadOnlyList<Exercise> Exercises,
     IReadOnlyList<ExerciseTemplate> ExerciseTemplates,
     IReadOnlyList<PlannedSession> PlannedSessions,
@@ -62,8 +63,10 @@ public sealed record BackupDocument(
 
 The JSON uses camelCase property names and enum strings, with stable ordering
 of each collection by its natural key or timestamp. The serialized UTF-8
-payload is checksummed with SHA-256; the checksum is metadata for export
-integrity and is verified before import mutation.
+payload is checksummed with SHA-256. Export calculates the checksum from a
+canonical document with `Checksum` blank, then writes the resulting value into
+the document; import blanks the field and repeats the calculation before any
+mutation.
 
 ## Export flow
 
