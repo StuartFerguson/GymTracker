@@ -18,6 +18,14 @@ internal static class WorkoutNavigationState
     public static ActiveWorkoutRecovery Recovery =>
         Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<ActiveWorkoutRecovery>()
         ?? throw new InvalidOperationException("The MAUI service provider is not available.");
+
+    public static IWorkoutHistoryRepository WorkoutHistoryRepository =>
+        Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<IWorkoutHistoryRepository>()
+        ?? throw new InvalidOperationException("The MAUI service provider is not available.");
+
+    public static ProgressService Progress =>
+        Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<ProgressService>()
+        ?? throw new InvalidOperationException("The MAUI service provider is not available.");
 }
 
 public abstract class FeaturePage : ContentPage
@@ -244,6 +252,7 @@ public sealed class StartWorkoutPage : FeaturePage
 
 public sealed class ActiveWorkoutPage : FeaturePage
 {
+    private readonly DateTimeOffset startedAt = DateTimeOffset.UtcNow;
     private readonly WorkoutSession session;
     private readonly Picker exercisePicker;
     private readonly Entry weightEntry;
@@ -443,12 +452,15 @@ public sealed class ActiveWorkoutPage : FeaturePage
     {
         try
         {
+            var catalog = new BuiltInWorkoutCatalog();
+            var records = WorkoutHistoryMapping.ToRecords(session, catalog.Exercises, startedAt, DateTimeOffset.UtcNow);
+            await WorkoutNavigationState.WorkoutHistoryRepository.SaveAsync(records.Session, records.Sets);
             await Shell.Current.GoToAsync(AppRoutes.WorkoutSummary);
             await WorkoutNavigationState.Recovery.ClearAsync();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            feedback.Text = "Workout finished, but the saved recovery state could not be cleared.";
+            feedback.Text = "The workout could not be saved. Try again before leaving this screen.";
         }
     }
 
@@ -688,21 +700,137 @@ public sealed class ActivityLogPage : FeaturePage
 
 public sealed class HistoryPage : FeaturePage
 {
+    private readonly DatePicker fromPicker;
+    private readonly DatePicker toPicker;
+    private readonly Label feedback;
+    private readonly VerticalStackLayout metricsLayout;
+    private readonly VerticalStackLayout workoutsLayout;
+    private readonly VerticalStackLayout activitiesLayout;
+
     public HistoryPage() : base("History", "Your training streak and completed sessions")
     {
-        AddSection("This week", "2 workouts  •  36 sets");
-        AddSection("This month", "9 workouts  •  162 sets");
-        AddSection("Current streak", "3 weeks consistent");
+        fromPicker = new DatePicker { Date = DateTime.Today.AddDays(-30), MaximumDate = DateTime.Today };
+        toPicker = new DatePicker { Date = DateTime.Today, MaximumDate = DateTime.Today };
+        feedback = new Label { TextColor = Color.FromArgb("#B42318") };
+        metricsLayout = new VerticalStackLayout { Spacing = 4 };
+        workoutsLayout = new VerticalStackLayout { Spacing = 8 };
+        activitiesLayout = new VerticalStackLayout { Spacing = 8 };
+        Body.Children.Add(new Label { Text = "Date range", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(fromPicker);
+        Body.Children.Add(toPicker);
+        Body.Children.Add(feedback);
+        AddAction("Refresh history", RefreshAsync, primary: true);
+        Body.Children.Add(new Label { Text = "Progress summary", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(metricsLayout);
+        Body.Children.Add(new Label { Text = "Workouts", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(workoutsLayout);
+        Body.Children.Add(new Label { Text = "Activities", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(activitiesLayout);
     }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var report = await WorkoutNavigationState.Progress.GetHistoryAsync(
+                DateOnly.FromDateTime(fromPicker.Date ?? DateTime.Today), DateOnly.FromDateTime(toPicker.Date ?? DateTime.Today));
+            feedback.Text = string.Empty;
+            metricsLayout.Children.Clear();
+            metricsLayout.Children.Add(new Label { Text = $"{report.Metrics.WorkoutCount} workouts  •  {report.Metrics.TotalSets} sets  •  {report.Metrics.TotalRepetitions} reps" });
+            metricsLayout.Children.Add(new Label { Text = $"{report.Metrics.TrainingVolumeKg:g} kg volume  •  {report.Metrics.ConsistentWeeks} consistent weeks", TextColor = Color.FromArgb("#5C677D") });
+
+            workoutsLayout.Children.Clear();
+            foreach (var workout in report.Workouts)
+            {
+                workoutsLayout.Children.Add(new Label { Text = $"{workout.StartedAt:dd MMM yyyy}  •  {workout.Name}  •  {workout.CompletedSetCount}/{workout.PlannedSetCount} planned sets  •  {workout.TrainingVolumeKg:g} kg" });
+            }
+            if (report.Workouts.Count == 0) workoutsLayout.Children.Add(new Label { Text = "No workouts in this date range.", TextColor = Color.FromArgb("#5C677D") });
+
+            activitiesLayout.Children.Clear();
+            foreach (var activity in report.Activities)
+            {
+                activitiesLayout.Children.Add(new Label { Text = $"{activity.Date:dd MMM yyyy}  •  {activity.Type}  •  {FormatDuration(activity.DurationSeconds)}  •  {activity.DistanceMetres:g} m" });
+            }
+            if (report.Activities.Count == 0) activitiesLayout.Children.Add(new Label { Text = "No activities in this date range.", TextColor = Color.FromArgb("#5C677D") });
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "History could not be loaded. Check the selected dates and try again.";
+        }
+    }
+
+    private static string FormatDuration(int seconds) => TimeSpan.FromSeconds(seconds).ToString(@"h\:mm", CultureInfo.InvariantCulture);
 }
 
 public sealed class ExerciseProgressPage : FeaturePage
 {
+    private readonly DatePicker fromPicker;
+    private readonly DatePicker toPicker;
+    private readonly Label feedback;
+    private readonly VerticalStackLayout progressLayout;
+
     public ExerciseProgressPage() : base("Exercise progress", "Track your strongest lifts over time")
     {
-        AddSection("Bench Press", "65 kg × 8  •  +5 kg this month");
-        AddSection("Barbell Row", "60 kg × 10  •  +2.5 kg this month");
-        AddSection("Shoulder Press", "32.5 kg × 8  •  New best");
+        fromPicker = new DatePicker { Date = DateTime.Today.AddDays(-90), MaximumDate = DateTime.Today };
+        toPicker = new DatePicker { Date = DateTime.Today, MaximumDate = DateTime.Today };
+        feedback = new Label { TextColor = Color.FromArgb("#B42318") };
+        progressLayout = new VerticalStackLayout { Spacing = 8 };
+        Body.Children.Add(new Label { Text = "Date range", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(fromPicker);
+        Body.Children.Add(toPicker);
+        Body.Children.Add(feedback);
+        AddAction("Refresh progress", RefreshAsync, primary: true);
+        Body.Children.Add(progressLayout);
+    }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var summaries = await WorkoutNavigationState.Progress.GetExerciseProgressAsync(
+                DateOnly.FromDateTime(fromPicker.Date ?? DateTime.Today), DateOnly.FromDateTime(toPicker.Date ?? DateTime.Today));
+            feedback.Text = string.Empty;
+            progressLayout.Children.Clear();
+            foreach (var summary in summaries)
+            {
+                var best = summary.BestWeightKg is null
+                    ? $"{summary.BestRepetitions} reps"
+                    : $"{summary.BestWeightKg:g} kg × {summary.BestRepetitions} reps";
+                progressLayout.Children.Add(new Border
+                {
+                    Stroke = Color.FromArgb("#E5E5E5"),
+                    StrokeShape = new RoundRectangle { CornerRadius = 14 },
+                    Padding = 16,
+                    Content = new VerticalStackLayout
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new Label { Text = summary.ExerciseName, FontFamily = "OpenSansSemibold", FontSize = 17 },
+                            new Label { Text = $"Personal best: {best}" },
+                            new Label { Text = $"{summary.Entries.Count} recorded sets", TextColor = Color.FromArgb("#5C677D") }
+                        }
+                    }
+                });
+            }
+            if (summaries.Count == 0) progressLayout.Children.Add(new Label { Text = "No exercise progress in this date range.", TextColor = Color.FromArgb("#5C677D") });
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "Exercise progress could not be loaded. Check the selected dates and try again.";
+        }
     }
 }
 

@@ -31,7 +31,7 @@ public static class DatabaseInitializer
 
 public static class DatabaseSchema
 {
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     public static IReadOnlyList<DatabaseMigration> Migrations { get; } =
     [
@@ -132,6 +132,9 @@ public static class DatabaseSchema
                 key TEXT NOT NULL PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            """),
+        new DatabaseMigration(4, """
+            ALTER TABLE workout_sets ADD COLUMN status TEXT NOT NULL DEFAULT 'Completed';
             """)
     ];
 }

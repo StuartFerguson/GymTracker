@@ -11,7 +11,7 @@ public sealed class DatabaseSchemaTests
 
         await DatabaseInitializer.InitializeAsync(store);
 
-        Assert.Equal(new[] { 2, 3 }, store.AppliedVersions);
+        Assert.Equal(new[] { 2, 3, 4 }, store.AppliedVersions);
         Assert.Equal(DatabaseSchema.CurrentVersion, store.AppliedVersions[^1]);
     }
 
@@ -37,6 +37,14 @@ public sealed class DatabaseSchemaTests
         Assert.Contains("CREATE TABLE IF NOT EXISTS workout_sessions", migration.Sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("started_at_utc TEXT NOT NULL", migration.Sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("weight_kg REAL", migration.Sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Version_four_persists_workout_set_status()
+    {
+        var migration = Assert.Single(DatabaseSchema.Migrations, item => item.Version == 4);
+
+        Assert.Contains("status", migration.Sql, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class FakeMigrationStore(params int[] appliedVersions) : IMigrationStore
