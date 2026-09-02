@@ -1,6 +1,7 @@
 using System.Globalization;
 using GymTracker.Application;
 using GymTracker.Core.Domain;
+using GymTracker.Core.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Controls.Shapes;
 
@@ -566,13 +567,123 @@ public sealed class WorkoutSummaryPage : FeaturePage
 
 public sealed class ActivityLogPage : FeaturePage
 {
-    public ActivityLogPage() : base("Activity log", "Recent training sessions and notes")
+    private readonly DatePicker datePicker;
+    private readonly Picker typePicker;
+    private readonly Entry durationEntry;
+    private readonly Entry distanceEntry;
+    private readonly Entry stepsEntry;
+    private readonly Entry notesEntry;
+    private readonly Label feedback;
+    private readonly VerticalStackLayout summaryLayout;
+    private readonly VerticalStackLayout activitiesLayout;
+
+    public ActivityLogPage() : base("Activity log", "Record walking, running, or swimming alongside your workouts")
     {
-        AddSection("Today", "Upper Body  •  In progress");
-        AddSection("Yesterday", "Rest day");
-        AddSection("Monday", "Lower Body  •  18 sets  •  4,860 kg");
+        datePicker = new DatePicker { Date = DateTime.Today, MaximumDate = DateTime.Today };
+        typePicker = new Picker { Title = "Activity type", ItemsSource = Enum.GetNames<ActivityType>(), SelectedIndex = 0 };
+        durationEntry = new Entry { Placeholder = "Duration (minutes)", Keyboard = Keyboard.Numeric };
+        distanceEntry = new Entry { Placeholder = "Distance (metres)", Keyboard = Keyboard.Numeric };
+        stepsEntry = new Entry { Placeholder = "Steps (optional)", Keyboard = Keyboard.Numeric };
+        notesEntry = new Entry { Placeholder = "Notes (optional)" };
+        feedback = new Label { TextColor = Color.FromArgb("#B42318") };
+        summaryLayout = new VerticalStackLayout { Spacing = 8 };
+        activitiesLayout = new VerticalStackLayout { Spacing = 8 };
+
+        Body.Children.Add(new Label { Text = "Log an activity", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(datePicker);
+        Body.Children.Add(typePicker);
+        Body.Children.Add(durationEntry);
+        Body.Children.Add(distanceEntry);
+        Body.Children.Add(stepsEntry);
+        Body.Children.Add(notesEntry);
+        Body.Children.Add(feedback);
+        AddAction("Save activity", SaveActivity, primary: true);
+        Body.Children.Add(new Label { Text = "This week", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(summaryLayout);
+        Body.Children.Add(new Label { Text = "Recent activities", FontFamily = "OpenSansSemibold", FontSize = 17 });
+        Body.Children.Add(activitiesLayout);
         AddAction("Start another workout", () => Shell.Current.GoToAsync(AppRoutes.StartWorkout), primary: true);
     }
+
+    protected override async void OnAppearing()
+    {
+        base.OnAppearing();
+        await RefreshAsync();
+    }
+
+    private async Task SaveActivity()
+    {
+        if (!TryParseOptionalInt(durationEntry.Text, out var minutes) || !TryParseOptionalDecimal(distanceEntry.Text, out var distance) || !TryParseOptionalInt(stepsEntry.Text, out var steps))
+        {
+            feedback.Text = "Enter valid non-negative activity values.";
+            return;
+        }
+
+        try
+        {
+            var type = Enum.Parse<ActivityType>(typePicker.SelectedItem?.ToString() ?? string.Empty);
+            var activity = ActivityLogging.Create(DateOnly.FromDateTime(datePicker.Date ?? DateTime.Today), type, minutes is null ? null : minutes.Value * 60, distance, steps, notesEntry.Text);
+            await ActivityRepository.AddAsync(activity);
+            durationEntry.Text = string.Empty;
+            distanceEntry.Text = string.Empty;
+            stepsEntry.Text = string.Empty;
+            notesEntry.Text = string.Empty;
+            feedback.Text = string.Empty;
+            await RefreshAsync();
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "The activity could not be saved. Check the values and try again.";
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var weekStart = today.DayOfWeek == DayOfWeek.Sunday ? today.AddDays(-6) : today.AddDays(-(int)today.DayOfWeek + (int)DayOfWeek.Monday);
+            var activities = await ActivityRepository.ListAsync(weekStart, weekStart.AddDays(6));
+            var summary = ActivityLogging.GetWeeklySummary(activities, weekStart);
+            summaryLayout.Children.Clear();
+            summaryLayout.Children.Add(new Label { Text = $"{summary.ActivityCount} activities  •  {FormatDuration(summary.TotalDurationSeconds)}  •  {summary.TotalDistanceMetres:g} m" });
+            summaryLayout.Children.Add(new Label { Text = $"Walking {summary.CountFor(ActivityType.Walking)}  •  Running {summary.CountFor(ActivityType.Running)}  •  Swimming {summary.CountFor(ActivityType.Swimming)}", TextColor = Color.FromArgb("#5C677D") });
+
+            activitiesLayout.Children.Clear();
+            foreach (var activity in activities.OrderByDescending(activity => activity.Date))
+            {
+                var pace = ActivityLogging.CalculatePace(activity);
+                var details = pace is null ? string.Empty : $"  •  {pace.Value:mm\\:ss}/km";
+                activitiesLayout.Children.Add(new Label { Text = $"{activity.Date:dd MMM}  •  {activity.Type}  •  {FormatDuration(activity.DurationSeconds)}{details}" });
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            feedback.Text = "Saved activities could not be loaded.";
+        }
+    }
+
+    private static IActivityRepository ActivityRepository =>
+        Microsoft.Maui.Controls.Application.Current?.Handler?.MauiContext?.Services.GetRequiredService<IActivityRepository>()
+        ?? throw new InvalidOperationException("The MAUI service provider is not available.");
+
+    private static bool TryParseOptionalInt(string? text, out int? value)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { value = null; return true; }
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0) { value = parsed; return true; }
+        value = null;
+        return false;
+    }
+
+    private static bool TryParseOptionalDecimal(string? text, out decimal? value)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { value = null; return true; }
+        if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0) { value = parsed; return true; }
+        value = null;
+        return false;
+    }
+
+    private static string FormatDuration(int? seconds) => seconds is null ? "" : TimeSpan.FromSeconds(seconds.Value).ToString(@"h\:mm", CultureInfo.InvariantCulture);
 }
 
 public sealed class HistoryPage : FeaturePage

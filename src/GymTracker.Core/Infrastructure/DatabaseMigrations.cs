@@ -92,8 +92,9 @@ public static class DatabaseSchema
                 id TEXT NOT NULL PRIMARY KEY,
                 recorded_at_utc TEXT NOT NULL,
                 activity_type TEXT NOT NULL,
-                duration_seconds INTEGER NOT NULL,
+                duration_seconds INTEGER,
                 distance_metres REAL,
+                steps INTEGER,
                 notes TEXT
             );
             CREATE TABLE IF NOT EXISTS recommendations (

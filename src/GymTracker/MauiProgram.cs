@@ -21,6 +21,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<IActiveWorkoutStore>(_ =>
             new JsonActiveWorkoutStore(Path.Combine(FileSystem.AppDataDirectory, "active-workout.json")));
         builder.Services.AddSingleton<ActiveWorkoutRecovery>();
+        builder.Services.AddSingleton<IActivityRepository>(_ =>
+            new SqliteActivityRepository($"Data Source={Path.Combine(FileSystem.AppDataDirectory, "gymtracker.db")}"));
 
 #if DEBUG
         builder.Logging.AddDebug();
