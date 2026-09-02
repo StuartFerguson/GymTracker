@@ -4,7 +4,7 @@
 
 **Goal:** Persist completed workouts and expose truthful workout/activity history and progress metrics through the existing MAUI history screens.
 
-**Architecture:** Add a focused `IWorkoutHistoryRepository` for completed workout records, backed by the existing SQLite schema. Add immutable progress query records and a `ProgressService` that aggregates repository data, then inject that service into the two existing placeholder pages. Keep route names and current write models intact.
+**Architecture:** Add a focused `IWorkoutHistoryRepository` for completed workout records, backed by the existing SQLite schema plus a backward-compatible migration for persisted set status. Add immutable progress query records and a `ProgressService` that aggregates repository data, then inject that service into the two existing placeholder pages. Keep route names and current write models intact.
 
 **Tech Stack:** .NET 10, C#, .NET MAUI, Microsoft.Data.Sqlite, xUnit 2.9.
 
@@ -15,6 +15,7 @@
 - Date ranges use inclusive `DateOnly` boundaries.
 - Workout metrics include only sets with `WorkoutSetStatus.Completed`.
 - Existing schema and navigation routes remain compatible.
+- Persisted set status is added by migration version 4; existing databases remain readable.
 - Tests must be deterministic and must use the existing xUnit conventions.
 
 ---
@@ -33,7 +34,7 @@
 - [ ] Write tests that save a completed session with sets, list it inside an inclusive date range, preserve set order, and exclude sessions outside the range.
 - [ ] Run the repository tests and confirm they fail because the repository contract/implementation is absent.
 - [ ] Add the repository contract and SQLite implementation using the existing `workout_sessions` and `workout_sets` tables, creating the database schema through the existing initializer.
-- [ ] Add a `WorkoutSession.ToRecord` conversion that assigns stable session/set IDs, stores completed-at time, and maps set status through the existing persistence model without changing the interactive session API.
+- [ ] Add a `WorkoutSession.ToRecords` conversion that assigns stable session/set IDs, stores start/completion times supplied by the finish flow, and maps set status through the existing persistence model without changing the interactive session API.
 - [ ] Run repository and existing core tests; confirm all pass.
 
 ### Task 2: Persist finished workouts from the MAUI flow
