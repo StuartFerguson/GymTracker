@@ -14,7 +14,9 @@ public sealed record ProgressionRecommendationRequest(
     decimal WeightIncrementKg,
     IReadOnlyList<ProgressionHistoryEntry> History,
     bool IsWeighted = true,
-    bool RecentlyUnused = false);
+    bool RecentlyUnused = false,
+    decimal? FallbackWeightKg = null,
+    int? FallbackRepetitions = null);
 
 public sealed record ProgressionHistoryEntry(
     DateTimeOffset CompletedAt,
