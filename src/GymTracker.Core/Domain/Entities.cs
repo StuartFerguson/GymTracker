@@ -80,7 +80,8 @@ public sealed record WorkoutSetRecord(
     decimal? WeightKg,
     int? Repetitions,
     string Unit,
-    string? Notes);
+    string? Notes,
+    string Status = "Completed");
 
 public sealed record ActivityRecord(
     Guid Id,

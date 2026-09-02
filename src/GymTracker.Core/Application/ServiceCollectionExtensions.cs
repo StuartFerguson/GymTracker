@@ -6,6 +6,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddGymTrackerApplication(this IServiceCollection services)
     {
+        services.AddSingleton<ProgressService>();
         return services;
     }
 }
